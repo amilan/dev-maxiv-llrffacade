@@ -164,6 +164,7 @@ class Llrf(Facade):
     )
 
     def delete_device(self):
+        Facade.delete_device(self)
         for att in self.dyn_attrs_dict.keys():
             listener_name = att + 'Listener'
             self.dyn_attrs_dict[att][0].removeListener(self.__dict__[listener_name])
@@ -181,7 +182,7 @@ class Llrf(Facade):
     def extract_attributes(self):
         self.info_stream("Extracting dynamicAttributes ...")
         dyn_attrs = self.DynamicAttributes
-        print dyn_attrs
+        #print dyn_attrs
         for attr in dyn_attrs:
             self.get_attributes_dict(attr)
         self.info_stream("... DynamicAttributes Extracted")
@@ -279,8 +280,6 @@ class Llrf(Facade):
         new_value = eval(w_method)
         attr_proxy.write(new_value)
 
-    def delete_device(self):
-        Facade.delete_device(self)
 
 
 
