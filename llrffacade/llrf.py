@@ -4,6 +4,8 @@ from PyTango import DispLevel, Attr, DevDouble, DevState, DevVarStringArray, Att
 from PyTango.server import device_property, command, attribute#, run
 from facadedevice import FacadeMeta, logical_attribute, proxy_attribute, Facade
 from taurus import Attribute
+import taurus.core
+import PyTango
 
 
 # from PyTango import Util,
@@ -161,6 +163,11 @@ class Llrf(Facade):
         doc='Example: Attr = (Attr, Formula)'
     )
 
+    def delete_device(self):
+        for att in self.dyn_attrs_dict.keys():
+            listener_name = att + 'Listener'
+            self.dyn_attrs_dict[att][0].removeListener(self.__dict__[listener_name])
+
     def init_device(self):
         Facade.init_device(self)
         try:
@@ -189,13 +196,32 @@ class Llrf(Facade):
         attr_name = attr_info[0]
         self.info_stream('attr_name = %s' % attr_name)
 
-        attr_to_proxy = attr_info[1].strip("(").strip(")").split(',')[0]
-        self.info_stream('attr_to_proxy = %s' %attr_to_proxy)
-
         attr_formula = attr_info[1].strip("(").strip(")").split(',')[1]
         self.info_stream('attr_formula = %s' % attr_formula)
 
-        self.dyn_attrs_dict[attr_name] = (attr_to_proxy, attr_formula)
+        attr_to_proxy = attr_info[1].strip("(").strip(")").split(',')[0]
+        full_attr_to_proxy = self.LlrfDevice + '/' + attr_to_proxy
+        taurus_attr = Attribute(full_attr_to_proxy)
+        listener_name = attr_name + 'Listener'
+        self.__dict__[listener_name] = taurus.core.TaurusListener(None)
+        self.__dict__[listener_name].eventReceived = lambda a, b, c: self._dyn_attr_event_received(a,self.__dict__[listener_name],c, attr_name, attr_formula )
+        taurus_attr.addListener(self.__dict__[listener_name])
+
+        self.info_stream('attr_to_proxy = %s' %attr_to_proxy)
+
+        self.dyn_attrs_dict[attr_name] = (taurus_attr, attr_formula)
+
+    def _dyn_attr_event_received(self, tango_attr, event_type, event_value, attr_nane, attr_formula):
+        if event_type in [taurus.core.TaurusEventType.Periodic, taurus.core.TaurusEventType.Change]:
+            VALUE = event_value.value
+            new_value = eval(attr_formula)
+            time = event_value.time.tv_sec + 1e-6*event_value.time.tv_usec
+            self.push_change_event(attr_nane, new_value, time, event_value.quality)
+        elif event_type in [taurus.core.TaurusEventType.Error]:
+            v = tango_attr.getValueObj()
+            time = v.time.tv_sec + 1e-6 * v.time.tv_usec
+            self.push_change_event(attr_nane, 0, time, PyTango.AttrQuality.ATTR_INVALID)
+
 
     def create_dyn_attributes(self):
         self.info_stream("Creating dynamic attributes ...")
@@ -205,22 +231,25 @@ class Llrf(Facade):
     def create_dyn_attribute(self, attr_name):
         attr = Attr(attr_name, DevDouble, AttrWriteType.READ_WRITE)
         self.add_attribute(attr, self.read_dyn_attributes, self.write_dyn_attributes)
+        self.set_change_event(attr_name, True)
 
     def read_dyn_attributes(self, attr):
-        self.info_stream("Reading attribute %s", attr_name)
         attr_name = attr.get_name()
-        attr_proxy = Attribute(self.LlrfDevice + '/' + self.dyn_attrs_dict[attr_name][0])
-        VALUE = attr_proxy.read().value
+        self.info_stream("Reading attribute %s", attr_name)
+        #attr_proxy = Attribute(self.LlrfDevice + '/' + self.dyn_attrs_dict[attr_name][0])
+        #VALUE = attr_proxy.read().value
+        VALUE = self.dyn_attrs_dict[attr_name][0].getValueObj().value
         formula = self.dyn_attrs_dict[attr_name][1]
         new_value = eval(formula)
         attr.set_value(new_value)
 
     def write_dyn_attributes(self, attr):
-        self.info_stream("Writing attribute %s", attr_name)
         attr_name = attr.get_name()
+        self.info_stream("Writing attribute %s", attr_name)
         data=[]
         attr.get_write_value(data)
-        attr_proxy = Attribute(self.LlrfDevice + '/' + self.dyn_attrs_dict[attr_name][0])
+        #attr_proxy = Attribute(self.LlrfDevice + '/' + self.dyn_attrs_dict[attr_name][0])
+        attr_proxy = self.dyn_attrs_dict[attr_name][0]
         attr_proxy.write(data[0])
 
     def delete_device(self):
