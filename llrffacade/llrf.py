@@ -196,25 +196,43 @@ class Llrf(Facade):
         attr_name = attr_info[0]
         self.info_stream('attr_name = %s' % attr_name)
 
-        attr_formula = attr_info[1].strip("(").strip(")").split(',')[1]
-        self.info_stream('attr_formula = %s' % attr_formula)
+        attr_info_list = attr_info[1].strip("(").strip(")").split(',')
 
-        attr_to_proxy = attr_info[1].strip("(").strip(")").split(',')[0]
+        if len(attr_info_list) == 2:
+            attr_to_proxy, r_method = attr_info_list
+
+        elif len(attr_info_list) == 3:
+            attr_to_proxy, r_method, w_method = attr_info_list
+
+
+        # attr_formula = attr_info[1].strip("(").strip(")").split(',')[1]
+        # self.info_stream('attr_formula = %s' % attr_formula)
+        self.info_stream('r_method = %s' % r_method)
+
+        # attr_to_proxy = attr_info[1].strip("(").strip(")").split(',')[0]
         full_attr_to_proxy = self.LlrfDevice + '/' + attr_to_proxy
         taurus_attr = Attribute(full_attr_to_proxy)
         listener_name = attr_name + 'Listener'
         self.__dict__[listener_name] = taurus.core.TaurusListener(None)
-        self.__dict__[listener_name].eventReceived = lambda a, b, c: self._dyn_attr_event_received(a,self.__dict__[listener_name],c, attr_name, attr_formula )
+        self.__dict__[listener_name].eventReceived = lambda a, b, c: self._dyn_attr_event_received(a,
+                                                                                                   self.__dict__[listener_name],
+                                                                                                   c,
+                                                                                                   attr_name,
+                                                                                                   r_method )
         taurus_attr.addListener(self.__dict__[listener_name])
 
         self.info_stream('attr_to_proxy = %s' %attr_to_proxy)
 
-        self.dyn_attrs_dict[attr_name] = (taurus_attr, attr_formula)
+        if len(attr_info_list) == 2:
+            self.dyn_attrs_dict[attr_name] = (taurus_attr, r_method)
 
-    def _dyn_attr_event_received(self, tango_attr, event_type, event_value, attr_nane, attr_formula):
+        elif len(attr_info_list) == 3:
+            self.dyn_attrs_dict[attr_name] = (taurus_attr, r_method, w_method)
+
+    def _dyn_attr_event_received(self, tango_attr, event_type, event_value, attr_nane, r_method):
         if event_type in [taurus.core.TaurusEventType.Periodic, taurus.core.TaurusEventType.Change]:
             VALUE = event_value.value
-            new_value = eval(attr_formula)
+            new_value = eval(r_method)
             time = event_value.time.tv_sec + 1e-6*event_value.time.tv_usec
             self.push_change_event(attr_nane, new_value, time, event_value.quality)
         elif event_type in [taurus.core.TaurusEventType.Error]:
@@ -229,8 +247,14 @@ class Llrf(Facade):
             self.create_dyn_attribute(att)
 
     def create_dyn_attribute(self, attr_name):
-        attr = Attr(attr_name, DevDouble, AttrWriteType.READ_WRITE)
-        self.add_attribute(attr, self.read_dyn_attributes, self.write_dyn_attributes)
+        if len(self.dyn_attrs_dict[attr_name]) == 2:
+            attr = Attr(attr_name, DevDouble, AttrWriteType.READ)
+            self.add_attribute(attr, self.read_dyn_attributes)
+
+        elif len(self.dyn_attrs_dict[attr_name]) == 3:
+            attr = Attr(attr_name, DevDouble, AttrWriteType.READ_WRITE)
+            self.add_attribute(attr, self.read_dyn_attributes, self.write_dyn_attributes)
+
         self.set_change_event(attr_name, True)
 
     def read_dyn_attributes(self, attr):
@@ -239,8 +263,8 @@ class Llrf(Facade):
         #attr_proxy = Attribute(self.LlrfDevice + '/' + self.dyn_attrs_dict[attr_name][0])
         #VALUE = attr_proxy.read().value
         VALUE = self.dyn_attrs_dict[attr_name][0].getValueObj().value
-        formula = self.dyn_attrs_dict[attr_name][1]
-        new_value = eval(formula)
+        r_method = self.dyn_attrs_dict[attr_name][1]
+        new_value = eval(r_method)
         attr.set_value(new_value)
 
     def write_dyn_attributes(self, attr):
@@ -248,9 +272,12 @@ class Llrf(Facade):
         self.info_stream("Writing attribute %s", attr_name)
         data=[]
         attr.get_write_value(data)
+        VALUE = data[0]
         #attr_proxy = Attribute(self.LlrfDevice + '/' + self.dyn_attrs_dict[attr_name][0])
         attr_proxy = self.dyn_attrs_dict[attr_name][0]
-        attr_proxy.write(data[0])
+        w_method = self.dyn_attrs_dict[attr_name][2]
+        new_value = eval(w_method)
+        attr_proxy.write(new_value)
 
     def delete_device(self):
         Facade.delete_device(self)
