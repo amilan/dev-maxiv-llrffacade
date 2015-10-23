@@ -25,7 +25,7 @@ from setuptools import setup
 def main():
     name = "tangods-llrffacade"
 
-    version = "0.1.1"
+    version = "0.1.2"
 
     description = "Facade Device server for LLRF"
 
